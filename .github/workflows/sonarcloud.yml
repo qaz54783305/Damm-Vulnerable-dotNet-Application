@@ -57,6 +57,7 @@ jobs:
             # mandatory
             -Dsonar.projectKey=qaz54783305_Damm-Vulnerable-dotNet-Application
             -Dsonar.organization=qaz54783305
+            -Dsonar.scm.provider=git
             # Comma-separated paths to directories containing main source files.
             #-Dsonar.sources= # optional, default is project base directory
             # Comma-separated paths to directories containing test source files.
