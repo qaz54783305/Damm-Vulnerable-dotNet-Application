@@ -14,15 +14,33 @@ namespace OWASP.WebGoat.NET
 {
 	public partial class AddNewUser : System.Web.UI.Page
 	{
-		const string passwordQuestion = "What is your favorite color";
+		private string passwordQuestion;
 
 	    protected void Page_Load(object sender, EventArgs e)
 	    {
-	        if (!Page.IsPostBack)
-	            SecurityQuestion.Text = passwordQuestion;
-	    }
+            if (!Page.IsPostBack)
+            {
+                // 從資料庫動態取得使用者特定的密碼提示
+                string username = Username.Text;
+                passwordQuestion = GetPasswordQuestionFromDatabase(username);
 
-	    protected void CreateAccountButton_Click(object sender, EventArgs e)
+                if (string.IsNullOrEmpty(passwordQuestion))
+                {
+                    passwordQuestion = "請輸入您的安全問題答案";
+                }
+
+                SecurityQuestion.Text = passwordQuestion;
+            }
+        }
+
+        private string GetPasswordQuestionFromDatabase(string username)
+        {
+			string queryRsult = ""; // 模擬從資料庫查詢的結果
+                                    // 從資料庫查詢該使用者的密碼提示
+            return queryRsult;
+        }
+
+        protected void CreateAccountButton_Click(object sender, EventArgs e)
 	    {
 	        MembershipCreateStatus createStatus;
 	

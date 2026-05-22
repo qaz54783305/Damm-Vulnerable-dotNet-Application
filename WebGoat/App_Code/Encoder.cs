@@ -9,12 +9,35 @@ using System.Web.Security;
 
 namespace OWASP.WebGoat.NET.App_Code
 {
-    public class Encoder
+    public class Encoder            
     {
-        //use for encryption
-        //encryption methods taken from: http://stackoverflow.com/questions/202011/encrypt-decrypt-string-in-net
         private static byte[] _salt = Encoding.ASCII.GetBytes("o6806642kbM7c5");
+        private const int PBKDF2_ITERATIONS = 600000;
 
+        /// <summary>
+        /// Derives cryptographic key using PBKDF2 with SHA-1 and 600,000 iterations
+        /// </summary>
+        /// <param name="sharedSecret">Password for key derivation</param>
+        /// <returns>Derived key bytes</returns>
+        private static byte[] DeriveKeyPbkdf2(string sharedSecret)
+        {
+            // 修正：移除 using，直接建立實例，並於 finally 釋放資源
+            Rfc2898DeriveBytes pbkdf2 = null;
+            try
+            {
+                pbkdf2 = new Rfc2898DeriveBytes(sharedSecret, _salt, PBKDF2_ITERATIONS);
+                return pbkdf2.GetBytes(32); // 256 bits for AES-256
+            }
+            finally
+            {
+                if (pbkdf2 != null)
+                {
+                #if NETSTANDARD2_0_OR_GREATER || NETCOREAPP2_0_OR_GREATER
+                            pbkdf2.Dispose();
+                #endif
+                }
+            }
+        }
 
         /// <summary>
         /// Encrypt the given string using AES.  The string can be decrypted using 
@@ -29,32 +52,28 @@ namespace OWASP.WebGoat.NET.App_Code
             if (string.IsNullOrEmpty(sharedSecret))
                 throw new ArgumentNullException("sharedSecret");
 
-            string outStr = null;                       // Encrypted string to return
-            RijndaelManaged aesAlg = null;              // RijndaelManaged object used to encrypt the data.
+            string outStr = null;
+            RijndaelManaged aesAlg = null;
 
             try
             {
-                // generate the key from the shared secret and the salt
-                Rfc2898DeriveBytes key = new Rfc2898DeriveBytes(sharedSecret, _salt);
+                byte[] key = DeriveKeyPbkdf2(sharedSecret);
 
-                // Create a RijndaelManaged object
-                // with the specified key and IV.
                 aesAlg = new RijndaelManaged();
-                aesAlg.Key = key.GetBytes(aesAlg.KeySize / 8);
-                aesAlg.IV = key.GetBytes(aesAlg.BlockSize / 8);
+                aesAlg.Key = key;
+                aesAlg.Mode = CipherMode.CBC;
+                aesAlg.Padding = PaddingMode.PKCS7;
 
-                // Create a decrytor to perform the stream transform.
                 ICryptoTransform encryptor = aesAlg.CreateEncryptor(aesAlg.Key, aesAlg.IV);
 
-                // Create the streams used for encryption.
                 using (MemoryStream msEncrypt = new MemoryStream())
                 {
+                    msEncrypt.Write(aesAlg.IV, 0, aesAlg.IV.Length);
+                    
                     using (CryptoStream csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
                     {
                         using (StreamWriter swEncrypt = new StreamWriter(csEncrypt))
                         {
-
-                            //Write all data to the stream.
                             swEncrypt.Write(plainText);
                         }
                     }
@@ -63,12 +82,10 @@ namespace OWASP.WebGoat.NET.App_Code
             }
             finally
             {
-                // Clear the RijndaelManaged object.
                 if (aesAlg != null)
                     aesAlg.Clear();
             }
 
-            // Return the encrypted bytes from the memory stream.
             return outStr;
         }
 
@@ -85,44 +102,38 @@ namespace OWASP.WebGoat.NET.App_Code
             if (string.IsNullOrEmpty(sharedSecret))
                 throw new ArgumentNullException("sharedSecret");
 
-            // Declare the RijndaelManaged object
-            // used to decrypt the data.
             RijndaelManaged aesAlg = null;
-
-            // Declare the string used to hold
-            // the decrypted text.
             string plaintext = null;
 
             try
             {
-                // generate the key from the shared secret and the salt
-                Rfc2898DeriveBytes key = new Rfc2898DeriveBytes(sharedSecret, _salt);
+                byte[] key = DeriveKeyPbkdf2(sharedSecret);
+                byte[] buffer = Convert.FromBase64String(cipherText);
 
-                // Create a RijndaelManaged object
-                // with the specified key and IV.
                 aesAlg = new RijndaelManaged();
-                aesAlg.Key = key.GetBytes(aesAlg.KeySize / 8);
-                aesAlg.IV = key.GetBytes(aesAlg.BlockSize / 8);
+                aesAlg.Key = key;
+                aesAlg.Mode = CipherMode.CBC;
+                aesAlg.Padding = PaddingMode.PKCS7;
 
-                // Create a decrytor to perform the stream transform.
+                byte[] iv = new byte[aesAlg.IV.Length];
+                Array.Copy(buffer, 0, iv, 0, iv.Length);
+                aesAlg.IV = iv;
+
                 ICryptoTransform decryptor = aesAlg.CreateDecryptor(aesAlg.Key, aesAlg.IV);
-                // Create the streams used for decryption.                
-                byte[] bytes = Convert.FromBase64String(cipherText);
-                using (MemoryStream msDecrypt = new MemoryStream(bytes))
+
+                using (MemoryStream msDecrypt = new MemoryStream(buffer, iv.Length, buffer.Length - iv.Length))
                 {
                     using (CryptoStream csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read))
                     {
                         using (StreamReader srDecrypt = new StreamReader(csDecrypt))
-
-                            // Read the decrypted bytes from the decrypting stream
-                            // and place them in a string.
+                        {
                             plaintext = srDecrypt.ReadToEnd();
+                        }
                     }
                 }
             }
             finally
             {
-                // Clear the RijndaelManaged object.
                 if (aesAlg != null)
                     aesAlg.Clear();
             }
@@ -154,7 +165,6 @@ namespace OWASP.WebGoat.NET.App_Code
             return output;
         }
 
-
         /// <summary>
         /// From http://weblogs.asp.net/navaidakhtar/archive/2008/07/08/converting-data-table-dataset-into-json-string.aspx
         /// </summary>
@@ -167,10 +177,8 @@ namespace OWASP.WebGoat.NET.App_Code
             string HeadStr = string.Empty;
             for (int i = 0; i < dt.Columns.Count; i++)
             {
-
                 StrDc[i] = dt.Columns[i].Caption;
                 HeadStr += "\"" + StrDc[i] + "\" : \"" + StrDc[i] + i.ToString() + "¾" + "\",";
-
             }
 
             HeadStr = HeadStr.Substring(0, HeadStr.Length - 1);
@@ -179,18 +187,14 @@ namespace OWASP.WebGoat.NET.App_Code
             Sb.Append("{\"" + dt.TableName + "\" : [");
             for (int i = 0; i < dt.Rows.Count; i++)
             {
-
                 string TempStr = HeadStr;
 
                 Sb.Append("{");
                 for (int j = 0; j < dt.Columns.Count; j++)
                 {
-
                     TempStr = TempStr.Replace(dt.Columns[j] + j.ToString() + "¾", dt.Rows[i][j].ToString());
-
                 }
                 Sb.Append(TempStr + "},");
-
             }
             Sb = new StringBuilder(Sb.ToString().Substring(0, Sb.ToString().Length - 1));
 
@@ -200,7 +204,7 @@ namespace OWASP.WebGoat.NET.App_Code
 
         public static string ToJSONSAutocompleteString(string query, DataTable dt)
         {
-            char[] badvalues = { '[', ']', '{', '}'};
+            char[] badvalues = { '[', ']', '{', '}' };
 
             foreach (char c in badvalues)
                 query = query.Replace(c, '#');
@@ -228,17 +232,16 @@ namespace OWASP.WebGoat.NET.App_Code
         {
             FormsAuthenticationTicket ticket =
                 new FormsAuthenticationTicket(
-                    1, //version 
-                    token, //token 
-                    DateTime.Now, //issueDate
-                    DateTime.Now.AddDays(14), //expireDate 
-                    true, //isPersistent
-                    "customer", //userData (customer role)
-                    FormsAuthentication.FormsCookiePath //cookiePath
+                    1,
+                    token,
+                    DateTime.Now,
+                    DateTime.Now.AddDays(14),
+                    true,
+                    "customer",
+                    FormsAuthentication.FormsCookiePath
             );
 
-            return FormsAuthentication.Encrypt(ticket); //encrypt the ticket
+            return FormsAuthentication.Encrypt(ticket);
         }
-
     }
 }

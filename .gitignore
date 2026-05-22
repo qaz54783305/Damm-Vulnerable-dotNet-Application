@@ -13,3 +13,4 @@ WebGoat/Configuration/*.config
 ###############
 .DS_Store
 /.vs
+/Backup2
